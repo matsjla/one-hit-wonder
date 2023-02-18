@@ -1,12 +1,13 @@
-use lambda_http::{run, service_fn, Body, Error, Request, Response};
+#![feature(decl_macro)]
 
-async fn function_handler(_event: Request) -> Result<Response<Body>, Error> {
-    let resp = Response::builder()
-        .status(200)
-        .header("content-type", "text/html")
-        .body("Hello AWS Lambda HTTP request".into())
-        .map_err(Box::new)?;
-    Ok(resp)
+use lambda_http::Error;
+use rocket::http::RawStr;
+use rocket_lamb::RocketExt;
+#[macro_use] extern crate rocket;
+
+#[get("/note/<id>")]
+fn note_by_id(id: &RawStr) -> String {
+    format!("Hello note {}", id.as_str())
 }
 
 #[tokio::main]
@@ -16,5 +17,8 @@ async fn main() -> Result<(), Error> {
         .with_target(false)
         .without_time()
         .init();
-    run(service_fn(function_handler)).await
+    rocket::ignite()
+        .mount("/api", routes![note_by_id])
+        .lambda()
+        .launch();
 }
