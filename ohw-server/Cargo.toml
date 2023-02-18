@@ -1,0 +1,17 @@
+[package]
+name = "ohw-server"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+tokio = { version = "1.21.1", features = ["full"] }
+serde = "1.0.145"
+log = "0.4.17"
+tracing = { version = "0.1.37", features = ["log"] }
+tracing-subscriber = { version = "0.3.15", features = ["env-filter"] }
+lambda_runtime = "0.7.3"
+lambda_http = "0.7.3"
+aws-config = "0.49.0"
+aws-sdk-dynamodb = "0.19.0"
