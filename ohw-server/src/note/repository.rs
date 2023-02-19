@@ -1,7 +1,7 @@
 use crate::postgres::Database;
 use sqlx::types::Uuid;
 
-#[derive(sqlx::FromRow)]
+#[derive(sqlx::FromRow, Debug)]
 pub struct NoteEntity {
     pub id: Uuid,
     pub content: String,
@@ -61,13 +61,15 @@ impl NoteRepository for NoteRepositoryImpl {
 #[cfg(test)]
 mod tests {
     use crate::note::repository::{CreateNoteInput, NoteRepository, NoteRepositoryImpl};
-    use crate::postgres::create_connection_pool;
-    use std::env;
+    use crate::postgres::create_testcontainers_pool;
+    use testcontainers::clients::Cli;
+    use testcontainers::images::postgres::Postgres;
 
     #[tokio::test]
     async fn it_can_create_read_and_delete() -> Result<(), sqlx::Error> {
-        let database_url = env::var("DATABASE_URL").unwrap();
-        let client = create_connection_pool(&database_url).await?;
+        let docker = Cli::default();
+        let container = docker.run::<Postgres>(Postgres::default());
+        let client = create_testcontainers_pool(&container).await?;
         let repository = NoteRepositoryImpl::new(client);
         // First, we attempt to create a new note
         let created = repository
