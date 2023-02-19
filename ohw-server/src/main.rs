@@ -1,4 +1,6 @@
-#![feature(proc_macro_hygiene, decl_macro)]
+#![feature(proc_macro_hygiene)]
+#![feature(async_fn_in_trait)]
+#![feature(decl_macro)]
 
 use lambda_http::Error;
 use rocket_contrib::json::{Json, JsonValue};
@@ -6,7 +8,6 @@ use rocket_contrib::uuid::Uuid;
 use rocket_lamb::RocketExt;
 use serde::Serialize;
 
-pub mod migrations;
 pub mod note;
 pub mod postgres;
 

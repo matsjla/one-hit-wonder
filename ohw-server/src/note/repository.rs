@@ -1,20 +1,11 @@
-use postgres::{Client, Error, Row};
-use uuid::Uuid;
+use crate::postgres::Database;
+use sqlx::types::Uuid;
 
+#[derive(sqlx::FromRow)]
 pub struct NoteEntity {
     pub id: Uuid,
     pub content: String,
     pub confidential: bool,
-}
-
-impl From<&Row> for NoteEntity {
-    fn from(row: &Row) -> Self {
-        Self {
-            id: row.get("id"),
-            content: row.get("content"),
-            confidential: row.get("confidential"),
-        }
-    }
 }
 
 pub struct CreateNoteInput {
@@ -23,73 +14,84 @@ pub struct CreateNoteInput {
 }
 
 pub trait NoteRepository {
-    fn create(&self, client: &mut Client, input: CreateNoteInput) -> Result<NoteEntity, Error>;
-    fn delete(&self, client: &mut Client, id: Uuid) -> Result<(), Error>;
-    fn find(&self, client: &mut Client, id: Uuid) -> Result<Option<NoteEntity>, Error>;
+    async fn create(&self, input: CreateNoteInput) -> Result<NoteEntity, sqlx::Error>;
+    async fn delete(&self, id: Uuid) -> Result<(), sqlx::Error>;
+    async fn find(&self, id: Uuid) -> Result<Option<NoteEntity>, sqlx::Error>;
 }
 
-pub struct NoteRepositoryImpl();
+pub struct NoteRepositoryImpl {
+    database: Database,
+}
+
+impl NoteRepositoryImpl {
+    pub fn new(database: Database) -> Self {
+        Self { database }
+    }
+}
 
 impl NoteRepository for NoteRepositoryImpl {
-    fn create(&self, client: &mut Client, input: CreateNoteInput) -> Result<NoteEntity, Error> {
-        let rows = client.query("INSERT INTO notes (id, content, confidential) VALUES (gen_random_uuid(), $1, $2) RETURNING *", &[
-            &input.content,
-            &input.confidential,
-        ])?;
-        let row = rows.first().unwrap();
-        Ok(NoteEntity::from(row))
+    async fn create(&self, input: CreateNoteInput) -> Result<NoteEntity, sqlx::Error> {
+        let note = sqlx::query_as::<_, NoteEntity>("INSERT INTO notes (id, content, confidential) VALUES (gen_random_uuid(), $1, $2) RETURNING id, content, confidential")
+            .bind(&input.content)
+            .bind(input.confidential)
+            .fetch_one(&self.database)
+            .await?;
+        Ok(note)
     }
 
-    fn delete(&self, client: &mut Client, id: Uuid) -> Result<(), Error> {
-        client.execute("DELETE FROM notes WHERE id = $1", &[&id])?;
+    async fn delete(&self, id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM notes WHERE id = $1")
+            .bind(id)
+            .execute(&self.database)
+            .await?;
         Ok(())
     }
 
-    fn find(&self, client: &mut Client, id: Uuid) -> Result<Option<NoteEntity>, Error> {
-        let rows = client.query("SELECT * FROM notes WHERE id = $1", &[&id])?;
-        match rows.first() {
-            Some(row) => Ok(Some(NoteEntity::from(row))),
-            None => Ok(None),
-        }
+    async fn find(&self, id: Uuid) -> Result<Option<NoteEntity>, sqlx::Error> {
+        let note = sqlx::query_as::<_, NoteEntity>(
+            "SELECT id, content, confidential FROM notes WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.database)
+        .await?;
+        Ok(note)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::note::repository::{CreateNoteInput, NoteRepository, NoteRepositoryImpl};
-    use crate::postgres::create_postgres_connection;
-    use postgres::Error;
+    use crate::postgres::create_connection_pool;
     use std::env;
 
-    #[test]
-    fn it_can_create_read_and_delete() -> Result<(), Error> {
-        let database_url = env::var("DATABASE_TEST_URL").unwrap();
-        let mut client = create_postgres_connection(database_url, true)?;
-        let repository = NoteRepositoryImpl();
+    #[tokio::test]
+    async fn it_can_create_read_and_delete() -> Result<(), sqlx::Error> {
+        let database_url = env::var("DATABASE_URL").unwrap();
+        let client = create_connection_pool(&database_url).await?;
+        let repository = NoteRepositoryImpl::new(client);
         // First, we attempt to create a new note
-        let created = repository.create(
-            &mut client,
-            CreateNoteInput {
+        let created = repository
+            .create(CreateNoteInput {
                 content: "Hello world".to_owned(),
                 confidential: true,
-            },
-        );
+            })
+            .await;
         assert!(created.is_ok());
         let created = created.unwrap();
         assert_eq!(created.content, "Hello world".to_owned());
         assert_eq!(created.confidential, true);
         // Then we try to locate that note in the database
-        let found = repository.find(&mut client, created.id);
+        let found = repository.find(created.id).await;
         assert!(found.is_ok());
         let found = found.unwrap();
         assert!(found.is_some());
         let found = found.unwrap();
         assert_eq!(created.id, found.id);
         // Then we delete the newly created note
-        let deletion = repository.delete(&mut client, created.id);
+        let deletion = repository.delete(created.id).await;
         assert!(deletion.is_ok());
         // The note should no longer be found
-        let missing = repository.find(&mut client, created.id);
+        let missing = repository.find(created.id).await;
         assert!(missing.is_ok());
         let missing = missing.unwrap();
         assert!(missing.is_none());
